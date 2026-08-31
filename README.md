@@ -1,0 +1,2 @@
+# magazzino-pwa
+Gestionale 
