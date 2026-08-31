@@ -1,7 +1,7 @@
 const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = window.APP_CONFIG;
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const APP_VERSION = "v0.3.0";
+const APP_VERSION = "v0.4.0";
 
 let currentUser = null;
 let currentProfile = null;
@@ -10,6 +10,8 @@ let ordersCache = [];
 let usersCache = [];
 let rolesCache = [];
 let pendingCsvRows = [];
+let activeWorkOrder = null;
+let activeWorkItems = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -79,14 +81,30 @@ function showResolvedView(view) {
 
 function applyRoleUI() {
   const role = currentProfile?.role || "operator";
+  const isMaster = role === "master";
+
   $("role-label").textContent = roleLabel(role);
   $("release-label").textContent = APP_VERSION;
   $("user-name").textContent = currentProfile?.full_name?.trim() || "Utente";
   $("user-email").textContent = currentProfile?.email || currentUser?.email || "";
 
+  document.body.classList.toggle("operator-mode", !isMaster);
   document.querySelectorAll(".master-only").forEach((el) => {
-    el.classList.toggle("hidden", role !== "master");
+    el.classList.toggle("hidden", !isMaster);
   });
+
+  $("operator-dashboard-banner")?.classList.toggle("hidden", isMaster);
+  if ($("orders-help")) {
+    $("orders-help").textContent = isMaster
+      ? "Crea, controlla, completa o elimina le lavorazioni."
+      : "Apri una lavorazione, registra i materiali prelevati e completala.";
+  }
+  if ($("recent-title")) {
+    $("recent-title").textContent = isMaster ? "Attività recenti" : "Lavorazioni da eseguire";
+    $("recent-subtitle").textContent = isMaster
+      ? "Ultime lavorazioni create o aggiornate."
+      : "Apri una lavorazione per iniziare a registrare i materiali.";
+  }
 }
 
 async function enterApp(user) {
@@ -111,6 +129,8 @@ function leaveApp() {
   usersCache = [];
   rolesCache = [];
   pendingCsvRows = [];
+  activeWorkOrder = null;
+  activeWorkItems = [];
   showResolvedView("login");
   loginForm.reset();
 }
@@ -326,10 +346,7 @@ $("users-body")?.addEventListener("click", async (event) => {
 });
 
 async function loadArticles() {
-  const { data, error } = await db
-    .from("articles")
-    .select("id, code, description, quantity, unit_price, unit, created_at")
-    .order("description", { ascending: true });
+  const { data, error } = await db.rpc("get_articles_for_app");
 
   if (error) {
     console.error(error);
@@ -337,16 +354,19 @@ async function loadArticles() {
     return;
   }
 
-  articlesCache = data || [];
+  articlesCache = (data || []).sort((a, b) =>
+    String(a.description || "").localeCompare(String(b.description || ""), "it")
+  );
   renderArticles();
 }
 
 function renderArticles() {
   const query = $("article-search").value.trim().toLowerCase();
+  const isMaster = currentProfile?.role === "master";
   const rows = articlesCache.filter((a) => {
     return !query ||
-      a.code.toLowerCase().includes(query) ||
-      a.description.toLowerCase().includes(query);
+      String(a.code || "").toLowerCase().includes(query) ||
+      String(a.description || "").toLowerCase().includes(query);
   });
 
   $("articles-body").innerHTML = rows.map((a) => `
@@ -355,7 +375,14 @@ function renderArticles() {
       <td>${escapeHtml(a.description)}</td>
       <td>${numberFmt.format(Number(a.quantity || 0))}</td>
       <td>${escapeHtml(a.unit)}</td>
-      <td>${money.format(Number(a.unit_price || 0))}</td>
+      ${isMaster ? `<td>${money.format(Number(a.unit_price || 0))}</td>` : ""}
+      ${isMaster ? `
+        <td>
+          <div class="row-actions">
+            <button class="btn ghost small edit-article-btn" type="button" data-id="${a.id}">Modifica</button>
+            <button class="btn danger small delete-article-btn" type="button" data-id="${a.id}">Elimina</button>
+          </div>
+        </td>` : ""}
     </tr>
   `).join("");
 
@@ -366,33 +393,81 @@ $("article-search").addEventListener("input", renderArticles);
 
 $("new-article-btn").addEventListener("click", () => {
   $("article-form").reset();
+  $("article-id").value = "";
+  $("article-dialog-title").textContent = "Nuovo articolo";
+  $("article-code").disabled = false;
   $("article-quantity").value = "0";
   $("article-unit").value = "pz";
   $("article-price").value = "0";
   $("article-dialog").showModal();
 });
 
+$("articles-body").addEventListener("click", async (event) => {
+  const editButton = event.target.closest(".edit-article-btn");
+  const deleteButton = event.target.closest(".delete-article-btn");
+
+  if (editButton) {
+    const article = articlesCache.find((a) => String(a.id) === String(editButton.dataset.id));
+    if (!article) return;
+
+    $("article-form").reset();
+    $("article-id").value = article.id;
+    $("article-dialog-title").textContent = "Modifica articolo";
+    $("article-code").value = article.code;
+    $("article-code").disabled = false;
+    $("article-description").value = article.description;
+    $("article-quantity").value = Number(article.quantity || 0);
+    $("article-unit").value = article.unit || "pz";
+    $("article-price").value = Number(article.unit_price || 0);
+    $("article-dialog").showModal();
+    return;
+  }
+
+  if (deleteButton) {
+    const article = articlesCache.find((a) => String(a.id) === String(deleteButton.dataset.id));
+    if (!article) return;
+
+    const ok = confirm(`Eliminare definitivamente l'articolo "${article.code} - ${article.description}"?`);
+    if (!ok) return;
+
+    const { error } = await db.rpc("master_delete_article", { p_article_id: article.id });
+    if (error) {
+      console.error(error);
+      showToast(error.message || "Impossibile eliminare l'articolo");
+      return;
+    }
+
+    showToast("Articolo eliminato");
+    await loadArticles();
+    renderDashboard();
+  }
+});
+
 $("article-form").addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const payload = {
-    code: $("article-code").value.trim(),
-    description: $("article-description").value.trim(),
-    quantity: Number($("article-quantity").value),
-    unit: $("article-unit").value.trim() || "pz",
-    unit_price: Number($("article-price").value)
+  const articleId = $("article-id").value || null;
+  const args = {
+    p_code: $("article-code").value.trim(),
+    p_description: $("article-description").value.trim(),
+    p_quantity: Number($("article-quantity").value),
+    p_unit_price: Number($("article-price").value),
+    p_unit: $("article-unit").value.trim() || "pz"
   };
 
-  const { error } = await db.from("articles").insert(payload);
+  const rpcName = articleId ? "master_update_article" : "master_create_article";
+  if (articleId) args.p_article_id = Number(articleId);
+
+  const { error } = await db.rpc(rpcName, args);
 
   if (error) {
     console.error(error);
-    showToast(error.code === "23505" ? "Codice articolo già esistente" : "Errore nel salvataggio");
+    showToast(error.message || "Errore nel salvataggio");
     return;
   }
 
   $("article-dialog").close();
-  showToast("Articolo creato");
+  showToast(articleId ? "Articolo aggiornato" : "Articolo creato");
   await loadArticles();
   renderDashboard();
 });
@@ -621,9 +696,9 @@ $("confirm-csv-import-btn").addEventListener("click", async () => {
   try {
     for (let i = 0; i < payload.length; i += batchSize) {
       const batch = payload.slice(i, i + batchSize);
-      const { error } = await db
-        .from("articles")
-        .upsert(batch, { onConflict: "code" });
+      const { error } = await db.rpc("master_import_articles", {
+        p_rows: batch
+      });
 
       if (error) throw error;
     }
@@ -660,17 +735,24 @@ async function loadOrders() {
 
 function renderOrders() {
   const filter = $("order-filter").value;
+  const isMaster = currentProfile?.role === "master";
   const rows = ordersCache.filter((o) => filter === "all" || o.status === filter);
 
   $("orders-list").innerHTML = rows.map((o) => `
     <article class="order-card">
-      <div>
+      <div class="order-card-main">
         <h4>${escapeHtml(o.description)}</h4>
         <div class="muted">${escapeHtml(o.code)}</div>
         <div class="order-meta">
           <span class="badge ${escapeHtml(o.status)}">${statusLabel(o.status)}</span>
           <span class="badge">${new Date(o.created_at).toLocaleDateString("it-IT")}</span>
         </div>
+      </div>
+      <div class="order-card-actions">
+        <button class="btn primary open-work-btn" type="button" data-id="${o.id}">
+          ${o.status === "completed" ? "Vedi distinta" : "Apri lavorazione"}
+        </button>
+        ${isMaster ? `<button class="btn danger delete-order-btn" type="button" data-id="${o.id}">Elimina</button>` : ""}
       </div>
     </article>
   `).join("");
@@ -688,17 +770,14 @@ $("new-order-btn").addEventListener("click", () => {
 $("order-form").addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const payload = {
-    code: $("order-code").value.trim(),
-    description: $("order-description").value.trim(),
-    status: "open"
-  };
-
-  const { error } = await db.from("work_orders").insert(payload);
+  const { error } = await db.rpc("master_create_work_order", {
+    p_code: $("order-code").value.trim(),
+    p_description: $("order-description").value.trim()
+  });
 
   if (error) {
     console.error(error);
-    showToast(error.code === "23505" ? "Codice lavorazione già esistente" : "Errore nella creazione");
+    showToast(error.message || "Errore nella creazione");
     return;
   }
 
@@ -706,6 +785,297 @@ $("order-form").addEventListener("submit", async (event) => {
   showToast("Lavorazione creata");
   await loadOrders();
   renderDashboard();
+});
+
+$("orders-list").addEventListener("click", async (event) => {
+  const openButton = event.target.closest(".open-work-btn");
+  const deleteButton = event.target.closest(".delete-order-btn");
+
+  if (openButton) {
+    await openWorkOrder(Number(openButton.dataset.id));
+    return;
+  }
+
+  if (deleteButton) {
+    await deleteWorkOrder(Number(deleteButton.dataset.id));
+  }
+});
+
+async function openWorkOrder(orderId) {
+  activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(orderId));
+  if (!activeWorkOrder) return;
+
+  $("work-title").textContent = activeWorkOrder.description;
+  $("work-code").textContent = activeWorkOrder.code;
+  $("work-status").textContent = statusLabel(activeWorkOrder.status);
+  $("work-status").className = `badge ${activeWorkOrder.status}`;
+
+  $("work-article-search").value = "";
+  $("work-item-quantity").value = "1";
+  populateWorkArticleSelect();
+
+  await loadWorkItems();
+
+  const isActive = ["open", "in_progress"].includes(activeWorkOrder.status);
+  $("work-active-area").classList.toggle("hidden", !isActive);
+  $("complete-work-btn").classList.toggle("hidden", !isActive);
+  $("work-actions-head").classList.toggle("hidden", !isActive);
+  $("work-items-help").textContent = isActive
+    ? "Le giacenze verranno scaricate solo quando completi la lavorazione."
+    : "Distinta definitiva dei materiali utilizzati.";
+
+  $("work-dialog").showModal();
+}
+
+async function loadWorkItems() {
+  if (!activeWorkOrder) return;
+
+  const { data, error } = await db.rpc("get_work_order_items_for_app", {
+    p_work_order_id: activeWorkOrder.id
+  });
+
+  if (error) {
+    console.error(error);
+    showToast("Errore nel caricamento dei materiali");
+    activeWorkItems = [];
+  } else {
+    activeWorkItems = data || [];
+  }
+
+  renderWorkItems();
+}
+
+function renderWorkItems() {
+  const isMaster = currentProfile?.role === "master";
+  const isActive = activeWorkOrder && ["open", "in_progress"].includes(activeWorkOrder.status);
+
+  $("work-items-body").innerHTML = activeWorkItems.map((item) => {
+    const total = Number(item.quantity || 0) * Number(item.unit_price || 0);
+    return `
+      <tr>
+        <td><strong>${escapeHtml(item.code)}</strong></td>
+        <td>${escapeHtml(item.description)}</td>
+        <td>${numberFmt.format(Number(item.quantity || 0))}</td>
+        <td>${escapeHtml(item.unit)}</td>
+        ${isMaster ? `<td>${money.format(Number(item.unit_price || 0))}</td>` : ""}
+        ${isMaster ? `<td>${money.format(total)}</td>` : ""}
+        ${isActive ? `
+          <td>
+            <div class="row-actions">
+              <button class="btn ghost small edit-work-item-btn" type="button" data-article-id="${item.article_id}" data-quantity="${item.quantity}">Modifica</button>
+              <button class="btn danger small remove-work-item-btn" type="button" data-article-id="${item.article_id}">Rimuovi</button>
+            </div>
+          </td>` : ""}
+      </tr>
+    `;
+  }).join("");
+
+  $("work-items-empty").classList.toggle("hidden", activeWorkItems.length > 0);
+
+  const total = activeWorkItems.reduce(
+    (sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
+    0
+  );
+  $("work-total").textContent = money.format(total);
+}
+
+function populateWorkArticleSelect() {
+  const select = $("work-article-select");
+  const query = $("work-article-search").value.trim().toLowerCase();
+
+  const filtered = articlesCache.filter((article) => {
+    if (Number(article.quantity || 0) <= 0) return false;
+    return !query ||
+      String(article.code || "").toLowerCase().includes(query) ||
+      String(article.description || "").toLowerCase().includes(query);
+  });
+
+  select.innerHTML = filtered.length
+    ? filtered.map((article) => `
+      <option value="${article.id}">
+        ${escapeHtml(article.code)} — ${escapeHtml(article.description)}
+      </option>
+    `).join("")
+    : `<option value="">Nessun articolo disponibile</option>`;
+
+  updateSelectedStockInfo();
+}
+
+function updateSelectedStockInfo() {
+  const article = articlesCache.find((a) => String(a.id) === String($("work-article-select").value));
+  const box = $("selected-stock-info");
+  if (!article) {
+    box.textContent = "";
+    return;
+  }
+
+  const already = activeWorkItems.find((item) => Number(item.article_id) === Number(article.id));
+  const suffix = already ? ` • già inseriti: ${numberFmt.format(Number(already.quantity || 0))} ${article.unit}` : "";
+  box.textContent = `Disponibili: ${numberFmt.format(Number(article.quantity || 0))} ${article.unit}${suffix}`;
+  box.classList.remove("warning");
+}
+
+$("work-article-search").addEventListener("input", populateWorkArticleSelect);
+$("work-article-select").addEventListener("change", updateSelectedStockInfo);
+
+$("add-work-item-btn").addEventListener("click", async () => {
+  if (!activeWorkOrder) return;
+
+  const articleId = Number($("work-article-select").value);
+  const quantity = Number($("work-item-quantity").value);
+  const article = articlesCache.find((a) => Number(a.id) === articleId);
+
+  if (!articleId || !Number.isFinite(quantity) || quantity <= 0) {
+    showToast("Seleziona un articolo e una quantità valida");
+    return;
+  }
+
+  if (quantity > Number(article?.quantity || 0)) {
+    showToast("Quantità superiore alla giacenza disponibile");
+    return;
+  }
+
+  const { error } = await db.rpc("save_work_order_item", {
+    p_work_order_id: activeWorkOrder.id,
+    p_article_id: articleId,
+    p_quantity: quantity
+  });
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || "Errore nell'aggiunta del materiale");
+    return;
+  }
+
+  showToast("Materiale registrato");
+  await loadOrders();
+  activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
+  $("work-status").textContent = statusLabel(activeWorkOrder.status);
+  $("work-status").className = `badge ${activeWorkOrder.status}`;
+  await loadWorkItems();
+  populateWorkArticleSelect();
+  renderDashboard();
+});
+
+$("work-items-body").addEventListener("click", async (event) => {
+  const editButton = event.target.closest(".edit-work-item-btn");
+  const removeButton = event.target.closest(".remove-work-item-btn");
+
+  if (editButton) {
+    $("work-article-select").value = editButton.dataset.articleId;
+    if ($("work-article-select").value !== editButton.dataset.articleId) {
+      $("work-article-search").value = "";
+      populateWorkArticleSelect();
+      $("work-article-select").value = editButton.dataset.articleId;
+    }
+    $("work-item-quantity").value = editButton.dataset.quantity;
+    updateSelectedStockInfo();
+    $("work-item-quantity").focus();
+    return;
+  }
+
+  if (removeButton) {
+    const ok = confirm("Rimuovere questo materiale dalla lavorazione?");
+    if (!ok) return;
+
+    const { error } = await db.rpc("remove_work_order_item", {
+      p_work_order_id: activeWorkOrder.id,
+      p_article_id: Number(removeButton.dataset.articleId)
+    });
+
+    if (error) {
+      console.error(error);
+      showToast(error.message || "Errore nella rimozione");
+      return;
+    }
+
+    showToast("Materiale rimosso");
+    await loadWorkItems();
+    await loadOrders();
+    activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
+    renderDashboard();
+  }
+});
+
+$("complete-work-btn").addEventListener("click", async () => {
+  if (!activeWorkOrder) return;
+  if (!activeWorkItems.length) {
+    showToast("Aggiungi almeno un materiale prima di completare");
+    return;
+  }
+
+  const ok = confirm(
+    "Completare la lavorazione? Le quantità verranno scaricate definitivamente dal magazzino."
+  );
+  if (!ok) return;
+
+  const button = $("complete-work-btn");
+  button.disabled = true;
+  button.textContent = "Completamento...";
+
+  const { error } = await db.rpc("complete_work_order", {
+    p_work_order_id: activeWorkOrder.id
+  });
+
+  button.disabled = false;
+  button.textContent = "Completa lavorazione";
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || "Impossibile completare la lavorazione");
+    return;
+  }
+
+  showToast("Lavorazione completata");
+  await Promise.all([loadOrders(), loadArticles()]);
+  activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
+  await loadWorkItems();
+
+  $("work-status").textContent = statusLabel(activeWorkOrder.status);
+  $("work-status").className = `badge ${activeWorkOrder.status}`;
+  $("work-active-area").classList.add("hidden");
+  $("complete-work-btn").classList.add("hidden");
+  $("work-actions-head").classList.add("hidden");
+  $("work-items-help").textContent = "Distinta definitiva dei materiali utilizzati.";
+  renderDashboard();
+});
+
+async function deleteWorkOrder(orderId) {
+  const order = ordersCache.find((o) => Number(o.id) === Number(orderId));
+  if (!order) return;
+
+  const extra = order.status === "completed"
+    ? "\\n\\nLa lavorazione è completata: le giacenze scaricate verranno ripristinate."
+    : "";
+  const ok = confirm(`Eliminare definitivamente "${order.code} - ${order.description}"?${extra}`);
+  if (!ok) return;
+
+  const { error } = await db.rpc("master_delete_work_order", {
+    p_work_order_id: order.id
+  });
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || "Impossibile eliminare la lavorazione");
+    return;
+  }
+
+  if ($("work-dialog").open) $("work-dialog").close();
+  activeWorkOrder = null;
+  activeWorkItems = [];
+  showToast("Lavorazione eliminata");
+  await Promise.all([loadOrders(), loadArticles()]);
+  renderDashboard();
+}
+
+$("delete-work-btn").addEventListener("click", async () => {
+  if (activeWorkOrder) await deleteWorkOrder(activeWorkOrder.id);
+});
+
+$("go-open-orders-btn")?.addEventListener("click", () => {
+  $("order-filter").value = "open";
+  openSection("orders");
+  renderOrders();
 });
 
 document.querySelectorAll("[data-close-dialog]").forEach((button) => {
@@ -716,6 +1086,8 @@ document.querySelectorAll("[data-close-dialog]").forEach((button) => {
 });
 
 function renderDashboard() {
+  const isMaster = currentProfile?.role === "master";
+
   $("stat-articles").textContent = numberFmt.format(articlesCache.length);
   $("stat-open-orders").textContent = numberFmt.format(
     ordersCache.filter((o) => ["open", "in_progress"].includes(o.status)).length
@@ -724,25 +1096,40 @@ function renderDashboard() {
     ordersCache.filter((o) => o.status === "completed").length
   );
 
-  const stockValue = articlesCache.reduce(
-    (sum, a) => sum + Number(a.quantity || 0) * Number(a.unit_price || 0),
-    0
-  );
-  $("stat-stock-value").textContent = money.format(stockValue);
+  if (isMaster) {
+    const stockValue = articlesCache.reduce(
+      (sum, a) => sum + Number(a.quantity || 0) * Number(a.unit_price || 0),
+      0
+    );
+    $("stat-stock-value").textContent = money.format(stockValue);
+  }
 
-  const recent = ordersCache.slice(0, 5);
+  const recent = isMaster
+    ? ordersCache.slice(0, 5)
+    : ordersCache.filter((o) => ["open", "in_progress"].includes(o.status)).slice(0, 8);
+
   $("recent-orders").innerHTML = recent.length
     ? recent.map((o) => `
       <div class="order-card">
-        <div>
+        <div class="order-card-main">
           <strong>${escapeHtml(o.description)}</strong>
           <div class="muted">${escapeHtml(o.code)}</div>
         </div>
-        <span class="badge ${escapeHtml(o.status)}">${statusLabel(o.status)}</span>
+        <div class="order-card-actions">
+          <span class="badge ${escapeHtml(o.status)}">${statusLabel(o.status)}</span>
+          ${!isMaster && ["open", "in_progress"].includes(o.status)
+            ? `<button class="btn primary small dashboard-open-work" type="button" data-id="${o.id}">Apri</button>`
+            : ""}
+        </div>
       </div>
     `).join("")
-    : `<div class="empty">Nessuna lavorazione presente.</div>`;
+    : `<div class="empty">${isMaster ? "Nessuna lavorazione presente." : "Nessuna lavorazione da eseguire."}</div>`;
 }
+
+$("recent-orders").addEventListener("click", async (event) => {
+  const button = event.target.closest(".dashboard-open-work");
+  if (button) await openWorkOrder(Number(button.dataset.id));
+});
 
 async function boot() {
   $("release-label").textContent = APP_VERSION;

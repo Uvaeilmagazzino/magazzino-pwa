@@ -94,7 +94,7 @@
       </header>
 
       <section id="section-dashboard" class="section active">
-        <div class="stats-grid">
+        <div id="master-dashboard-stats" class="stats-grid">
           <article class="stat-card">
             <span>Articoli</span>
             <strong id="stat-articles">—</strong>
@@ -107,17 +107,26 @@
             <span>Lavorazioni completate</span>
             <strong id="stat-completed-orders">—</strong>
           </article>
-          <article class="stat-card">
+          <article class="stat-card master-only">
             <span>Valore giacenze</span>
             <strong id="stat-stock-value">—</strong>
           </article>
         </div>
 
+        <div id="operator-dashboard-banner" class="operator-banner hidden">
+          <div>
+            <p class="eyebrow">AREA OPERATORE</p>
+            <h3>Lavorazioni da eseguire</h3>
+            <p>Apri una lavorazione, registra i materiali prelevati e completala quando hai finito.</p>
+          </div>
+          <button id="go-open-orders-btn" class="btn primary" type="button">Vai alle lavorazioni</button>
+        </div>
+
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h3>Attività recenti</h3>
-              <p class="muted">Ultime lavorazioni create o aggiornate.</p>
+              <h3 id="recent-title">Attività recenti</h3>
+              <p id="recent-subtitle" class="muted">Ultime lavorazioni create o aggiornate.</p>
             </div>
           </div>
           <div id="recent-orders" class="list-placeholder">Caricamento...</div>
@@ -151,7 +160,8 @@
                   <th>Descrizione</th>
                   <th>Giacenza</th>
                   <th>UM</th>
-                  <th>Prezzo</th>
+                  <th class="master-only">Prezzo</th>
+                  <th class="master-only">Azioni</th>
                 </tr>
               </thead>
               <tbody id="articles-body"></tbody>
@@ -166,7 +176,7 @@
           <div class="panel-head">
             <div>
               <h3>Lavorazioni</h3>
-              <p class="muted">Ordini da preparare e storico completati.</p>
+              <p id="orders-help" class="muted">Ordini da preparare e storico completati.</p>
             </div>
             <button id="new-order-btn" class="btn primary master-only">+ Nuova lavorazione</button>
           </div>
@@ -226,11 +236,12 @@
       <div class="dialog-head">
         <div>
           <p class="eyebrow">MAGAZZINO</p>
-          <h3>Nuovo articolo</h3>
+          <h3 id="article-dialog-title">Nuovo articolo</h3>
         </div>
         <button type="button" class="icon-btn" data-close-dialog="article-dialog">✕</button>
       </div>
 
+      <input id="article-id" type="hidden" />
       <div class="form-grid">
         <label>
           Codice *
@@ -256,7 +267,7 @@
 
       <div class="dialog-actions">
         <button type="button" class="btn ghost" data-close-dialog="article-dialog">Annulla</button>
-        <button class="btn primary" type="submit">Salva articolo</button>
+        <button id="save-article-btn" class="btn primary" type="submit">Salva articolo</button>
       </div>
     </form>
   </dialog>
@@ -334,6 +345,85 @@
         <button class="btn primary" type="submit">Crea lavorazione</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="work-dialog" class="wide-dialog">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">LAVORAZIONE</p>
+          <h3 id="work-title">—</h3>
+          <div class="work-subhead">
+            <span id="work-code" class="muted">—</span>
+            <span id="work-status" class="badge open">Aperta</span>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="work-dialog">✕</button>
+      </div>
+
+      <div id="work-active-area">
+        <div class="pick-panel">
+          <div>
+            <h4>Aggiungi materiale</h4>
+            <p class="muted">Seleziona l'articolo e indica la quantità effettivamente prelevata.</p>
+          </div>
+          <div class="pick-grid">
+            <label class="span-2">
+              Cerca articolo
+              <input id="work-article-search" type="search" placeholder="Codice o descrizione..." />
+            </label>
+            <label class="span-2">
+              Articolo
+              <select id="work-article-select"></select>
+            </label>
+            <label>
+              Quantità
+              <input id="work-item-quantity" type="number" min="0.001" step="0.001" value="1" />
+            </label>
+            <div class="pick-action">
+              <button id="add-work-item-btn" class="btn primary" type="button">Aggiungi / aggiorna</button>
+            </div>
+          </div>
+          <div id="selected-stock-info" class="stock-info"></div>
+        </div>
+      </div>
+
+      <div class="work-items-head">
+        <div>
+          <h4>Materiali della lavorazione</h4>
+          <p id="work-items-help" class="muted">Le giacenze verranno scaricate solo quando completi la lavorazione.</p>
+        </div>
+        <div id="work-total-box" class="work-total master-only">
+          <span>Costo materiali</span>
+          <strong id="work-total">€ 0,00</strong>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="work-items-table">
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th>Descrizione</th>
+              <th>Quantità</th>
+              <th>UM</th>
+              <th class="master-only">Prezzo</th>
+              <th class="master-only">Costo</th>
+              <th id="work-actions-head">Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="work-items-body"></tbody>
+        </table>
+      </div>
+      <div id="work-items-empty" class="empty hidden">Nessun materiale aggiunto.</div>
+
+      <div class="dialog-actions work-dialog-actions">
+        <button id="delete-work-btn" class="btn danger master-only" type="button">Elimina lavorazione</button>
+        <div class="dialog-actions-spacer"></div>
+        <button type="button" class="btn ghost" data-close-dialog="work-dialog">Chiudi</button>
+        <button id="complete-work-btn" class="btn success" type="button">Completa lavorazione</button>
+      </div>
+    </div>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
