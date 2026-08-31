@@ -1,7 +1,7 @@
 const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = window.APP_CONFIG;
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const APP_VERSION = "v0.4.2";
+const APP_VERSION = "v0.4.3";
 
 let currentUser = null;
 let currentProfile = null;
@@ -63,6 +63,12 @@ async function loadProfile() {
 
   if (error) throw error;
   currentProfile = data;
+}
+
+function normalizeArticleCode(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function roleLabel(roleId) {
@@ -787,6 +793,9 @@ function renderOrders() {
         <button class="btn primary open-work-btn" type="button" data-id="${o.id}">
           ${o.status === "completed" ? "Vedi distinta" : "Apri lavorazione"}
         </button>
+        ${o.status === "in_progress"
+          ? `<button class="btn success complete-order-btn" type="button" data-id="${o.id}">Completa</button>`
+          : ""}
         ${isMaster ? `<button class="btn danger delete-order-btn" type="button" data-id="${o.id}">Elimina</button>` : ""}
       </div>
     </article>
@@ -824,10 +833,16 @@ $("order-form").addEventListener("submit", async (event) => {
 
 $("orders-list").addEventListener("click", async (event) => {
   const openButton = event.target.closest(".open-work-btn");
+  const completeButton = event.target.closest(".complete-order-btn");
   const deleteButton = event.target.closest(".delete-order-btn");
 
   if (openButton) {
     await openWorkOrder(Number(openButton.dataset.id));
+    return;
+  }
+
+  if (completeButton) {
+    await completeWorkOrderFromList(Number(completeButton.dataset.id));
     return;
   }
 
@@ -858,7 +873,6 @@ async function openWorkOrder(orderId) {
 
   const isActive = ["open", "in_progress"].includes(activeWorkOrder.status);
   $("work-active-area").classList.toggle("hidden", !isActive);
-  $("complete-work-btn").classList.toggle("hidden", !isActive || activeWorkItems.length === 0);
   $("work-actions-head").classList.toggle("hidden", !isActive);
   $("work-items-help").textContent = isActive
     ? "Le giacenze verranno scaricate solo quando completi la lavorazione."
@@ -941,8 +955,9 @@ function populateWorkArticleSelect() {
   const filtered = articlesCache.filter((article) => {
     if (Number(article.quantity || 0) <= 0) return false;
 
-    const matchesCode = !codeQuery ||
-      String(article.code || "").toLowerCase().includes(codeQuery);
+    const normalizedCodeQuery = normalizeArticleCode(codeQuery);
+    const matchesCode = !normalizedCodeQuery ||
+      normalizeArticleCode(article.code).includes(normalizedCodeQuery);
 
     const matchesDescription = !descriptionQuery ||
       String(article.description || "").toLowerCase().includes(descriptionQuery);
@@ -1043,8 +1058,6 @@ $("add-work-item-btn").addEventListener("click", async () => {
   $("work-status").className = `badge ${activeWorkOrder.status}`;
 
   await loadWorkItems();
-  $("complete-work-btn").classList.toggle("hidden", activeWorkItems.length === 0);
-
   setWorkMessage(
     `Aggiunto: ${article.code} — quantità ${numberFmt.format(quantity)}.`,
     "success"
@@ -1091,7 +1104,6 @@ $("work-items-body").addEventListener("click", async (event) => {
     }
 
     await loadWorkItems();
-    $("complete-work-btn").classList.toggle("hidden", activeWorkItems.length === 0);
     setWorkMessage("Materiale rimosso dalla lavorazione.", "info");
     await loadOrders();
     activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
@@ -1099,48 +1111,55 @@ $("work-items-body").addEventListener("click", async (event) => {
   }
 });
 
-$("complete-work-btn").addEventListener("click", async () => {
-  if (!activeWorkOrder) return;
-  if (!activeWorkItems.length) {
-    setWorkMessage("Aggiungi almeno un materiale prima di completare.", "error");
+async function completeWorkOrderFromList(orderId) {
+  const order = ordersCache.find((o) => Number(o.id) === Number(orderId));
+  if (!order) return;
+
+  if (order.status !== "in_progress") {
+    showToast("La lavorazione deve avere almeno un materiale prima di poter essere completata");
     return;
   }
 
+  const { data: items, error: itemsError } = await db.rpc("get_work_order_items_for_app", {
+    p_work_order_id: order.id
+  });
+
+  if (itemsError) {
+    console.error(itemsError);
+    showToast("Non riesco a leggere i materiali della lavorazione");
+    return;
+  }
+
+  if (!items?.length) {
+    showToast("Aggiungi almeno un materiale prima di completare");
+    return;
+  }
+
+  const summary = items
+    .map((item) => `${item.code}: ${numberFmt.format(Number(item.quantity || 0))}`)
+    .join("\\n");
+
   const ok = confirm(
-    "Completare la lavorazione? Le quantità verranno scaricate definitivamente dal magazzino."
+    `Completare "${order.code} - ${order.description}"?\\n\\n` +
+    `Materiali registrati:\\n${summary}\\n\\n` +
+    `Confermando, le quantità verranno scaricate definitivamente dal magazzino.`
   );
   if (!ok) return;
 
-  const button = $("complete-work-btn");
-  button.disabled = true;
-  button.textContent = "Completamento...";
-
   const { error } = await db.rpc("complete_work_order", {
-    p_work_order_id: activeWorkOrder.id
+    p_work_order_id: order.id
   });
-
-  button.disabled = false;
-  button.textContent = "Completa lavorazione";
 
   if (error) {
     console.error(error);
-    setWorkMessage(error.message || "Impossibile completare la lavorazione.", "error");
+    showToast(error.message || "Impossibile completare la lavorazione");
     return;
   }
 
   showToast("Lavorazione completata");
   await Promise.all([loadOrders(), loadArticles()]);
-  activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
-  await loadWorkItems();
-
-  $("work-status").textContent = statusLabel(activeWorkOrder.status);
-  $("work-status").className = `badge ${activeWorkOrder.status}`;
-  $("work-active-area").classList.add("hidden");
-  $("complete-work-btn").classList.add("hidden");
-  $("work-actions-head").classList.add("hidden");
-  $("work-items-help").textContent = "Distinta definitiva dei materiali utilizzati.";
   renderDashboard();
-});
+}
 
 async function deleteWorkOrder(orderId) {
   const order = ordersCache.find((o) => Number(o.id) === Number(orderId));
