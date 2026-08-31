@@ -6,58 +6,288 @@
   <meta name="theme-color" content="#0f172a" />
   <meta name="description" content="Gestionale magazzino e lavorazioni" />
   <title>Magazzino</title>
+
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./app-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./style.css" />
 </head>
+
 <body>
   <div id="toast" class="toast hidden"></div>
+
   <section id="login-view" class="auth-shell">
     <div class="auth-card">
       <div class="brand-mark">M</div>
-      <div><p class="eyebrow">GESTIONALE</p><h1>Magazzino</h1><p class="muted">Accedi per gestire articoli e lavorazioni.</p></div>
+      <div>
+        <p class="eyebrow">GESTIONALE</p>
+        <h1>Magazzino</h1>
+        <p class="muted">Accedi per gestire articoli e lavorazioni.</p>
+      </div>
+
       <form id="login-form" class="stack">
-        <label>Email<input id="email" type="email" autocomplete="email" required /></label>
-        <label>Password<input id="password" type="password" autocomplete="current-password" required /></label>
+        <label>
+          Email
+          <input id="email" type="email" autocomplete="email" required />
+        </label>
+
+        <label>
+          Password
+          <input id="password" type="password" autocomplete="current-password" required />
+        </label>
+
         <button id="login-btn" class="btn primary" type="submit">Accedi</button>
       </form>
+
       <p id="login-error" class="error-text hidden"></p>
     </div>
   </section>
+
   <div id="app-view" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark small">M</div><div><strong>Magazzino</strong><span id="role-label">...</span></div></div>
-      <nav class="nav"><button class="nav-item active" data-section="dashboard">Dashboard</button><button class="nav-item" data-section="articles">Articoli</button><button class="nav-item" data-section="orders">Lavorazioni</button></nav>
-      <div class="sidebar-footer"><div class="user-box"><strong id="user-name">Utente</strong><span id="user-email"></span></div><button id="logout-btn" class="btn ghost full">Esci</button></div>
+      <div class="brand">
+        <div class="brand-mark small">M</div>
+        <div>
+          <strong>Magazzino</strong>
+          <span id="role-label">...</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-section="dashboard">Dashboard</button>
+        <button class="nav-item" data-section="articles">Articoli</button>
+        <button class="nav-item" data-section="orders">Lavorazioni</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-box">
+          <strong id="user-name">Utente</strong>
+          <span id="user-email"></span>
+        </div>
+        <button id="logout-btn" class="btn ghost full">Esci</button>
+      </div>
     </aside>
+
     <main class="main">
-      <header class="topbar"><button id="menu-toggle" class="icon-btn mobile-only" aria-label="Apri menu">☰</button><div><p class="eyebrow">MAGAZZINO</p><h2 id="page-title">Dashboard</h2></div></header>
+      <header class="topbar">
+        <button id="menu-toggle" class="icon-btn mobile-only" aria-label="Apri menu">☰</button>
+        <div>
+          <p class="eyebrow">MAGAZZINO</p>
+          <h2 id="page-title">Dashboard</h2>
+        </div>
+      </header>
+
       <section id="section-dashboard" class="section active">
         <div class="stats-grid">
-          <article class="stat-card"><span>Articoli</span><strong id="stat-articles">—</strong></article>
-          <article class="stat-card"><span>Lavorazioni aperte</span><strong id="stat-open-orders">—</strong></article>
-          <article class="stat-card"><span>Lavorazioni completate</span><strong id="stat-completed-orders">—</strong></article>
-          <article class="stat-card"><span>Valore giacenze</span><strong id="stat-stock-value">—</strong></article>
+          <article class="stat-card">
+            <span>Articoli</span>
+            <strong id="stat-articles">—</strong>
+          </article>
+          <article class="stat-card">
+            <span>Lavorazioni aperte</span>
+            <strong id="stat-open-orders">—</strong>
+          </article>
+          <article class="stat-card">
+            <span>Lavorazioni completate</span>
+            <strong id="stat-completed-orders">—</strong>
+          </article>
+          <article class="stat-card">
+            <span>Valore giacenze</span>
+            <strong id="stat-stock-value">—</strong>
+          </article>
         </div>
-        <div class="panel"><div class="panel-head"><div><h3>Attività recenti</h3><p class="muted">Ultime lavorazioni create o aggiornate.</p></div></div><div id="recent-orders" class="list-placeholder">Caricamento...</div></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Attività recenti</h3>
+              <p class="muted">Ultime lavorazioni create o aggiornate.</p>
+            </div>
+          </div>
+          <div id="recent-orders" class="list-placeholder">Caricamento...</div>
+        </div>
       </section>
+
       <section id="section-articles" class="section">
-        <div class="panel"><div class="panel-head"><div><h3>Articoli</h3><p class="muted">Catalogo e giacenze di magazzino.</p></div><button id="new-article-btn" class="btn primary master-only">+ Nuovo articolo</button></div>
-          <div class="toolbar"><input id="article-search" class="search-input" type="search" placeholder="Cerca codice o descrizione..." /></div>
-          <div class="table-wrap"><table><thead><tr><th>Codice</th><th>Descrizione</th><th>Giacenza</th><th>UM</th><th>Prezzo</th></tr></thead><tbody id="articles-body"></tbody></table></div><div id="articles-empty" class="empty hidden">Nessun articolo trovato.</div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Articoli</h3>
+              <p class="muted">Catalogo e giacenze di magazzino.</p>
+            </div>
+            <div class="panel-actions master-only">
+              <button id="import-csv-btn" class="btn ghost">Importa CSV</button>
+              <button id="new-article-btn" class="btn primary">+ Nuovo articolo</button>
+            </div>
+          </div>
+
+          <input id="csv-file-input" type="file" accept=".csv,text/csv" class="hidden" />
+
+          <div class="toolbar">
+            <input id="article-search" class="search-input" type="search" placeholder="Cerca codice o descrizione..." />
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Codice</th>
+                  <th>Descrizione</th>
+                  <th>Giacenza</th>
+                  <th>UM</th>
+                  <th>Prezzo</th>
+                </tr>
+              </thead>
+              <tbody id="articles-body"></tbody>
+            </table>
+          </div>
+          <div id="articles-empty" class="empty hidden">Nessun articolo trovato.</div>
         </div>
       </section>
+
       <section id="section-orders" class="section">
-        <div class="panel"><div class="panel-head"><div><h3>Lavorazioni</h3><p class="muted">Ordini da preparare e storico completati.</p></div><button id="new-order-btn" class="btn primary master-only">+ Nuova lavorazione</button></div>
-          <div class="toolbar"><select id="order-filter"><option value="all">Tutte</option><option value="open">Aperte</option><option value="in_progress">In corso</option><option value="completed">Completate</option><option value="cancelled">Annullate</option></select></div>
-          <div id="orders-list" class="cards-list"></div><div id="orders-empty" class="empty hidden">Nessuna lavorazione trovata.</div>
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Lavorazioni</h3>
+              <p class="muted">Ordini da preparare e storico completati.</p>
+            </div>
+            <button id="new-order-btn" class="btn primary master-only">+ Nuova lavorazione</button>
+          </div>
+
+          <div class="toolbar">
+            <select id="order-filter">
+              <option value="all">Tutte</option>
+              <option value="open">Aperte</option>
+              <option value="in_progress">In corso</option>
+              <option value="completed">Completate</option>
+              <option value="cancelled">Annullate</option>
+            </select>
+          </div>
+
+          <div id="orders-list" class="cards-list"></div>
+          <div id="orders-empty" class="empty hidden">Nessuna lavorazione trovata.</div>
         </div>
       </section>
     </main>
   </div>
-  <dialog id="article-dialog"><form id="article-form" method="dialog" class="dialog-card"><div class="dialog-head"><div><p class="eyebrow">MAGAZZINO</p><h3>Nuovo articolo</h3></div><button type="button" class="icon-btn" data-close-dialog="article-dialog">✕</button></div><div class="form-grid"><label>Codice *<input id="article-code" required /></label><label class="span-2">Descrizione *<input id="article-description" required /></label><label>Quantità<input id="article-quantity" type="number" min="0" step="0.001" value="0" required /></label><label>Unità<input id="article-unit" value="pz" required /></label><label>Prezzo unitario<input id="article-price" type="number" min="0" step="0.01" value="0" required /></label></div><div class="dialog-actions"><button type="button" class="btn ghost" data-close-dialog="article-dialog">Annulla</button><button class="btn primary" type="submit">Salva articolo</button></div></form></dialog>
-  <dialog id="order-dialog"><form id="order-form" method="dialog" class="dialog-card"><div class="dialog-head"><div><p class="eyebrow">LAVORAZIONI</p><h3>Nuova lavorazione</h3></div><button type="button" class="icon-btn" data-close-dialog="order-dialog">✕</button></div><div class="form-grid"><label>Codice *<input id="order-code" placeholder="es. ORD-0001" required /></label><label class="span-2">Descrizione *<input id="order-description" placeholder="es. Porta di Vetro" required /></label></div><div class="dialog-actions"><button type="button" class="btn ghost" data-close-dialog="order-dialog">Annulla</button><button class="btn primary" type="submit">Crea lavorazione</button></div></form></dialog>
+
+  <dialog id="article-dialog">
+    <form id="article-form" method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">MAGAZZINO</p>
+          <h3>Nuovo articolo</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="article-dialog">✕</button>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Codice *
+          <input id="article-code" required />
+        </label>
+        <label class="span-2">
+          Descrizione *
+          <input id="article-description" required />
+        </label>
+        <label>
+          Quantità
+          <input id="article-quantity" type="number" min="0" step="0.001" value="0" required />
+        </label>
+        <label>
+          Unità
+          <input id="article-unit" value="pz" required />
+        </label>
+        <label>
+          Prezzo unitario
+          <input id="article-price" type="number" min="0" step="0.01" value="0" required />
+        </label>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close-dialog="article-dialog">Annulla</button>
+        <button class="btn primary" type="submit">Salva articolo</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="csv-dialog">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">MAGAZZINO</p>
+          <h3>Importa CSV</h3>
+          <p id="csv-filename" class="muted"></p>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="csv-dialog">✕</button>
+      </div>
+
+      <div class="csv-summary">
+        <div><span>Righe valide</span><strong id="csv-valid-count">0</strong></div>
+        <div><span>Nuovi articoli</span><strong id="csv-new-count">0</strong></div>
+        <div><span>Da aggiornare</span><strong id="csv-update-count">0</strong></div>
+        <div><span>Errori</span><strong id="csv-error-count">0</strong></div>
+      </div>
+
+      <div id="csv-errors-box" class="csv-errors hidden"></div>
+
+      <div class="table-wrap csv-preview-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th>Descrizione</th>
+              <th>Quantità</th>
+              <th>Prezzo</th>
+              <th>UM</th>
+              <th>Esito</th>
+            </tr>
+          </thead>
+          <tbody id="csv-preview-body"></tbody>
+        </table>
+      </div>
+
+      <p class="muted csv-note">
+        Se un codice esiste già, descrizione, quantità, prezzo e unità di misura verranno aggiornati con i valori presenti nel CSV.
+      </p>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close-dialog="csv-dialog">Annulla</button>
+        <button id="confirm-csv-import-btn" class="btn primary" type="button">Importa</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="order-dialog">
+    <form id="order-form" method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">LAVORAZIONI</p>
+          <h3>Nuova lavorazione</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="order-dialog">✕</button>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Codice *
+          <input id="order-code" placeholder="es. ORD-0001" required />
+        </label>
+        <label class="span-2">
+          Descrizione *
+          <input id="order-description" placeholder="es. Porta di Vetro" required />
+        </label>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close-dialog="order-dialog">Annulla</button>
+        <button class="btn primary" type="submit">Crea lavorazione</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js"></script>
   <script src="./app.js"></script>
-</body></html>
+</body>
+</html>
