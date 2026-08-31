@@ -95,15 +95,15 @@
 
       <section id="section-dashboard" class="section active">
         <div id="master-dashboard-stats" class="stats-grid">
-          <article class="stat-card">
+          <article class="stat-card clickable-stat" data-stat-target="articles" role="button" tabindex="0" aria-label="Apri la sezione Articoli">
             <span>Articoli</span>
             <strong id="stat-articles">—</strong>
           </article>
-          <article class="stat-card">
+          <article class="stat-card clickable-stat" data-stat-target="open-orders" role="button" tabindex="0" aria-label="Apri le lavorazioni aperte">
             <span>Lavorazioni aperte</span>
             <strong id="stat-open-orders">—</strong>
           </article>
-          <article class="stat-card">
+          <article class="stat-card clickable-stat" data-stat-target="completed-orders" role="button" tabindex="0" aria-label="Apri le lavorazioni completate">
             <span>Lavorazioni completate</span>
             <strong id="stat-completed-orders">—</strong>
           </article>
@@ -159,7 +159,7 @@
                   <th>Codice</th>
                   <th>Descrizione</th>
                   <th>Giacenza</th>
-                  <th>UM</th>
+                  <th class="master-only">UM</th>
                   <th class="master-only">Prezzo</th>
                   <th class="master-only">Azioni</th>
                 </tr>

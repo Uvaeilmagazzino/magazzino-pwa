@@ -1,7 +1,7 @@
 const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = window.APP_CONFIG;
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const APP_VERSION = "v0.4.0";
+const APP_VERSION = "v0.4.1";
 
 let currentUser = null;
 let currentProfile = null;
@@ -202,6 +202,37 @@ document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => openSection(button.dataset.section));
 });
 
+function activateDashboardStat(target) {
+  if (target === "articles") {
+    openSection("articles");
+    $("article-search")?.focus();
+    return;
+  }
+
+  if (target === "open-orders") {
+    $("order-filter").value = "open";
+    renderOrders();
+    openSection("orders");
+    return;
+  }
+
+  if (target === "completed-orders") {
+    $("order-filter").value = "completed";
+    renderOrders();
+    openSection("orders");
+  }
+}
+
+document.querySelectorAll(".clickable-stat").forEach((card) => {
+  card.addEventListener("click", () => activateDashboardStat(card.dataset.statTarget));
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activateDashboardStat(card.dataset.statTarget);
+    }
+  });
+});
+
 menuToggle?.addEventListener("click", () => sidebar.classList.toggle("open"));
 
 async function loadRoles() {
@@ -374,7 +405,7 @@ function renderArticles() {
       <td><strong>${escapeHtml(a.code)}</strong></td>
       <td>${escapeHtml(a.description)}</td>
       <td>${numberFmt.format(Number(a.quantity || 0))}</td>
-      <td>${escapeHtml(a.unit)}</td>
+      ${isMaster ? `<td>${escapeHtml(a.unit)}</td>` : ""}
       ${isMaster ? `<td>${money.format(Number(a.unit_price || 0))}</td>` : ""}
       ${isMaster ? `
         <td>
@@ -736,7 +767,11 @@ async function loadOrders() {
 function renderOrders() {
   const filter = $("order-filter").value;
   const isMaster = currentProfile?.role === "master";
-  const rows = ordersCache.filter((o) => filter === "all" || o.status === filter);
+  const rows = ordersCache.filter((o) => {
+    if (filter === "all") return true;
+    if (filter === "open") return ["open", "in_progress"].includes(o.status);
+    return o.status === filter;
+  });
 
   $("orders-list").innerHTML = rows.map((o) => `
     <article class="order-card">
