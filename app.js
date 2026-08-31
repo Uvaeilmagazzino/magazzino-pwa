@@ -1,7 +1,7 @@
 const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = window.APP_CONFIG;
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const APP_VERSION = "v0.4.1";
+const APP_VERSION = "v0.4.2";
 
 let currentUser = null;
 let currentProfile = null;
@@ -840,20 +840,25 @@ async function openWorkOrder(orderId) {
   activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(orderId));
   if (!activeWorkOrder) return;
 
+  // Rileggiamo le giacenze dal database ogni volta che si apre una lavorazione.
+  await loadArticles();
+
   $("work-title").textContent = activeWorkOrder.description;
   $("work-code").textContent = activeWorkOrder.code;
   $("work-status").textContent = statusLabel(activeWorkOrder.status);
   $("work-status").className = `badge ${activeWorkOrder.status}`;
 
-  $("work-article-search").value = "";
+  $("work-code-search").value = "";
+  $("work-description-search").value = "";
   $("work-item-quantity").value = "1";
+  setWorkMessage("");
   populateWorkArticleSelect();
 
   await loadWorkItems();
 
   const isActive = ["open", "in_progress"].includes(activeWorkOrder.status);
   $("work-active-area").classList.toggle("hidden", !isActive);
-  $("complete-work-btn").classList.toggle("hidden", !isActive);
+  $("complete-work-btn").classList.toggle("hidden", !isActive || activeWorkItems.length === 0);
   $("work-actions-head").classList.toggle("hidden", !isActive);
   $("work-items-help").textContent = isActive
     ? "Le giacenze verranno scaricate solo quando completi la lavorazione."
@@ -914,15 +919,35 @@ function renderWorkItems() {
   $("work-total").textContent = money.format(total);
 }
 
+function setWorkMessage(message, type = "info") {
+  const box = $("work-inline-message");
+  if (!message) {
+    box.textContent = "";
+    box.className = "work-inline-message hidden";
+    return;
+  }
+
+  box.textContent = message;
+  box.className = `work-inline-message ${type}`;
+}
+
 function populateWorkArticleSelect() {
   const select = $("work-article-select");
-  const query = $("work-article-search").value.trim().toLowerCase();
+  const codeQuery = $("work-code-search").value.trim().toLowerCase();
+  const descriptionQuery = $("work-description-search").value.trim().toLowerCase();
+
+  const currentSelection = select.value;
 
   const filtered = articlesCache.filter((article) => {
     if (Number(article.quantity || 0) <= 0) return false;
-    return !query ||
-      String(article.code || "").toLowerCase().includes(query) ||
-      String(article.description || "").toLowerCase().includes(query);
+
+    const matchesCode = !codeQuery ||
+      String(article.code || "").toLowerCase().includes(codeQuery);
+
+    const matchesDescription = !descriptionQuery ||
+      String(article.description || "").toLowerCase().includes(descriptionQuery);
+
+    return matchesCode && matchesDescription;
   });
 
   select.innerHTML = filtered.length
@@ -931,7 +956,11 @@ function populateWorkArticleSelect() {
         ${escapeHtml(article.code)} — ${escapeHtml(article.description)}
       </option>
     `).join("")
-    : `<option value="">Nessun articolo disponibile</option>`;
+    : `<option value="">Nessun articolo trovato</option>`;
+
+  if (currentSelection && filtered.some((a) => String(a.id) === String(currentSelection))) {
+    select.value = currentSelection;
+  }
 
   updateSelectedStockInfo();
 }
@@ -940,18 +969,26 @@ function updateSelectedStockInfo() {
   const article = articlesCache.find((a) => String(a.id) === String($("work-article-select").value));
   const box = $("selected-stock-info");
   if (!article) {
-    box.textContent = "";
+    box.textContent = "Nessun articolo selezionato.";
     return;
   }
 
   const already = activeWorkItems.find((item) => Number(item.article_id) === Number(article.id));
-  const suffix = already ? ` • già inseriti: ${numberFmt.format(Number(already.quantity || 0))} ${article.unit}` : "";
-  box.textContent = `Disponibili: ${numberFmt.format(Number(article.quantity || 0))} ${article.unit}${suffix}`;
+  const suffix = already
+    ? ` • già inseriti nella lavorazione: ${numberFmt.format(Number(already.quantity || 0))}`
+    : "";
+
+  box.innerHTML = `<strong>Giacenza attuale:</strong> ${numberFmt.format(Number(article.quantity || 0))}${suffix}`;
   box.classList.remove("warning");
 }
 
-$("work-article-search").addEventListener("input", populateWorkArticleSelect);
-$("work-article-select").addEventListener("change", updateSelectedStockInfo);
+$("work-code-search").addEventListener("input", populateWorkArticleSelect);
+$("work-description-search").addEventListener("input", populateWorkArticleSelect);
+$("work-article-select").addEventListener("change", () => {
+  $("work-item-quantity").value = "1";
+  setWorkMessage("");
+  updateSelectedStockInfo();
+});
 
 $("add-work-item-btn").addEventListener("click", async () => {
   if (!activeWorkOrder) return;
@@ -960,15 +997,30 @@ $("add-work-item-btn").addEventListener("click", async () => {
   const quantity = Number($("work-item-quantity").value);
   const article = articlesCache.find((a) => Number(a.id) === articleId);
 
+  setWorkMessage("");
+
   if (!articleId || !Number.isFinite(quantity) || quantity <= 0) {
-    showToast("Seleziona un articolo e una quantità valida");
+    setWorkMessage("Seleziona un articolo e inserisci una quantità valida.", "error");
+    return;
+  }
+
+  if (!Number.isInteger(quantity)) {
+    setWorkMessage("Per questa lavorazione inserisci una quantità intera.", "error");
     return;
   }
 
   if (quantity > Number(article?.quantity || 0)) {
-    showToast("Quantità superiore alla giacenza disponibile");
+    setWorkMessage(
+      `Quantità non disponibile. Giacenza attuale: ${numberFmt.format(Number(article?.quantity || 0))}.`,
+      "error"
+    );
     return;
   }
+
+  const button = $("add-work-item-btn");
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Conferma in corso...";
 
   const { error } = await db.rpc("save_work_order_item", {
     p_work_order_id: activeWorkOrder.id,
@@ -976,18 +1028,31 @@ $("add-work-item-btn").addEventListener("click", async () => {
     p_quantity: quantity
   });
 
+  button.disabled = false;
+  button.textContent = originalText;
+
   if (error) {
     console.error(error);
-    showToast(error.message || "Errore nell'aggiunta del materiale");
+    setWorkMessage(error.message || "Errore nell'aggiunta del materiale.", "error");
     return;
   }
 
-  showToast("Materiale registrato");
   await loadOrders();
   activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
   $("work-status").textContent = statusLabel(activeWorkOrder.status);
   $("work-status").className = `badge ${activeWorkOrder.status}`;
+
   await loadWorkItems();
+  $("complete-work-btn").classList.toggle("hidden", activeWorkItems.length === 0);
+
+  setWorkMessage(
+    `Aggiunto: ${article.code} — quantità ${numberFmt.format(quantity)}.`,
+    "success"
+  );
+
+  $("work-code-search").value = "";
+  $("work-description-search").value = "";
+  $("work-item-quantity").value = "1";
   populateWorkArticleSelect();
   renderDashboard();
 });
@@ -999,7 +1064,8 @@ $("work-items-body").addEventListener("click", async (event) => {
   if (editButton) {
     $("work-article-select").value = editButton.dataset.articleId;
     if ($("work-article-select").value !== editButton.dataset.articleId) {
-      $("work-article-search").value = "";
+      $("work-code-search").value = "";
+      $("work-description-search").value = "";
       populateWorkArticleSelect();
       $("work-article-select").value = editButton.dataset.articleId;
     }
@@ -1024,8 +1090,9 @@ $("work-items-body").addEventListener("click", async (event) => {
       return;
     }
 
-    showToast("Materiale rimosso");
     await loadWorkItems();
+    $("complete-work-btn").classList.toggle("hidden", activeWorkItems.length === 0);
+    setWorkMessage("Materiale rimosso dalla lavorazione.", "info");
     await loadOrders();
     activeWorkOrder = ordersCache.find((o) => Number(o.id) === Number(activeWorkOrder.id));
     renderDashboard();
@@ -1035,7 +1102,7 @@ $("work-items-body").addEventListener("click", async (event) => {
 $("complete-work-btn").addEventListener("click", async () => {
   if (!activeWorkOrder) return;
   if (!activeWorkItems.length) {
-    showToast("Aggiungi almeno un materiale prima di completare");
+    setWorkMessage("Aggiungi almeno un materiale prima di completare.", "error");
     return;
   }
 
@@ -1057,7 +1124,7 @@ $("complete-work-btn").addEventListener("click", async () => {
 
   if (error) {
     console.error(error);
-    showToast(error.message || "Impossibile completare la lavorazione");
+    setWorkMessage(error.message || "Impossibile completare la lavorazione.", "error");
     return;
   }
 

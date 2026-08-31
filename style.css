@@ -346,3 +346,81 @@ dialog::backdrop{background:rgba(15,23,42,.55)}
 .operator-mode #section-articles table{
   min-width:0
 }
+
+
+/* Release v0.4.2 - UX operatore lavorazioni */
+.operator-mode #recent-orders .order-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:18px;
+  padding:16px 18px
+}
+.operator-mode #recent-orders .order-card-main{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:18px
+}
+.operator-mode #recent-orders .order-card-main strong{
+  font-size:1rem
+}
+.operator-mode #recent-orders .order-card-actions{
+  display:grid;
+  grid-template-columns:auto 150px;
+  align-items:center;
+  gap:12px
+}
+.operator-mode #recent-orders .dashboard-open-work{
+  min-height:48px;
+  width:150px;
+  font-size:.9rem
+}
+.work-inline-message{
+  margin-top:12px;
+  padding:12px 14px;
+  border-radius:12px;
+  font-weight:800;
+  font-size:.86rem
+}
+.work-inline-message.success{
+  display:block;
+  border:1px solid #86efac;
+  background:#f0fdf4;
+  color:#166534
+}
+.work-inline-message.error{
+  display:block;
+  border:1px solid #fecaca;
+  background:#fef2f2;
+  color:#991b1b
+}
+.work-inline-message.info{
+  display:block;
+  border:1px solid #bae6fd;
+  background:#f0f9ff;
+  color:#075985
+}
+.stock-info{
+  padding:10px 12px;
+  border-radius:10px;
+  background:#fff;
+  border:1px solid var(--border)
+}
+.stock-info strong{color:var(--text)}
+#work-article-select{
+  min-height:48px
+}
+#work-item-quantity{
+  min-height:48px
+}
+@media(max-width:760px){
+  .operator-mode #recent-orders .order-card,
+  .operator-mode #recent-orders .order-card-main,
+  .operator-mode #recent-orders .order-card-actions{
+    grid-template-columns:1fr
+  }
+  .operator-mode #recent-orders .dashboard-open-work{
+    width:100%
+  }
+}

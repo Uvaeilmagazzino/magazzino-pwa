@@ -368,23 +368,28 @@
             <p class="muted">Seleziona l'articolo e indica la quantità effettivamente prelevata.</p>
           </div>
           <div class="pick-grid">
-            <label class="span-2">
-              Cerca articolo
-              <input id="work-article-search" type="search" placeholder="Codice o descrizione..." />
+            <label>
+              Cerca per codice
+              <input id="work-code-search" type="search" placeholder="Es. S.2751..." />
+            </label>
+            <label>
+              Cerca per descrizione
+              <input id="work-description-search" type="search" placeholder="Es. asta PVC..." />
             </label>
             <label class="span-2">
-              Articolo
+              Catalogo articoli
               <select id="work-article-select"></select>
             </label>
             <label>
               Quantità
-              <input id="work-item-quantity" type="number" min="0.001" step="0.001" value="1" />
+              <input id="work-item-quantity" type="number" min="1" step="1" value="1" inputmode="numeric" />
             </label>
             <div class="pick-action">
-              <button id="add-work-item-btn" class="btn primary" type="button">Aggiungi / aggiorna</button>
+              <button id="add-work-item-btn" class="btn primary" type="button">Conferma articolo</button>
             </div>
           </div>
           <div id="selected-stock-info" class="stock-info"></div>
+          <div id="work-inline-message" class="work-inline-message hidden" role="status" aria-live="polite"></div>
         </div>
       </div>
 
@@ -421,7 +426,7 @@
         <button id="delete-work-btn" class="btn danger master-only" type="button">Elimina lavorazione</button>
         <div class="dialog-actions-spacer"></div>
         <button type="button" class="btn ghost" data-close-dialog="work-dialog">Chiudi</button>
-        <button id="complete-work-btn" class="btn success" type="button">Completa lavorazione</button>
+        <button id="complete-work-btn" class="btn success hidden" type="button">Completa lavorazione</button>
       </div>
     </div>
   </dialog>
