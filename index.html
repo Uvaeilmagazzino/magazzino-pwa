@@ -15,7 +15,19 @@
 <body>
   <div id="toast" class="toast hidden"></div>
 
-  <section id="login-view" class="auth-shell">
+  <section id="loading-view" class="loading-shell">
+    <div class="loading-card" aria-live="polite">
+      <div class="brand-mark">M</div>
+      <div>
+        <p class="eyebrow">MAGAZZINO</p>
+        <h1>Caricamento...</h1>
+        <p class="muted">Controllo della sessione in corso.</p>
+      </div>
+      <div class="loading-bar" aria-hidden="true"><span></span></div>
+    </div>
+  </section>
+
+  <section id="login-view" class="auth-shell hidden">
     <div class="auth-card">
       <div class="brand-mark">M</div>
       <div>
@@ -56,14 +68,19 @@
         <button class="nav-item active" data-section="dashboard">Dashboard</button>
         <button class="nav-item" data-section="articles">Articoli</button>
         <button class="nav-item" data-section="orders">Lavorazioni</button>
+        <button class="nav-item master-only hidden" data-section="users">Utenti</button>
       </nav>
 
       <div class="sidebar-footer">
+        <div class="release-box">
+          <span>Release</span>
+          <strong id="release-label">—</strong>
+        </div>
         <div class="user-box">
           <strong id="user-name">Utente</strong>
           <span id="user-email"></span>
         </div>
-        <button id="logout-btn" class="btn ghost full">Esci</button>
+        <button id="logout-btn" class="btn sidebar-logout full" type="button">Esci</button>
       </div>
     </aside>
 
@@ -168,6 +185,39 @@
           <div id="orders-empty" class="empty hidden">Nessuna lavorazione trovata.</div>
         </div>
       </section>
+
+      <section id="section-users" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Utenti e ruoli</h3>
+              <p class="muted">Gli utenti nuovi vengono creati automaticamente come Operatore. Solo un Master può modificare i ruoli.</p>
+            </div>
+            <button id="refresh-users-btn" class="btn ghost master-only">Aggiorna elenco</button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Utente</th>
+                  <th>Email</th>
+                  <th>Ruolo</th>
+                  <th>Azione</th>
+                </tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+          <div id="users-empty" class="empty hidden">Nessun utente trovato.</div>
+
+          <div class="roles-note">
+            <strong>Gestione pronta per ruoli futuri.</strong>
+            <span>I ruoli disponibili vengono letti dalla tabella <code>roles</code>, quindi potremo aggiungerne altri senza rifare questa schermata.</span>
+          </div>
+        </div>
+      </section>
+
     </main>
   </div>
 

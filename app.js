@@ -1,14 +1,19 @@
 const { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } = window.APP_CONFIG;
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
+const APP_VERSION = "v0.3.0";
+
 let currentUser = null;
 let currentProfile = null;
 let articlesCache = [];
 let ordersCache = [];
+let usersCache = [];
+let rolesCache = [];
 let pendingCsvRows = [];
 
 const $ = (id) => document.getElementById(id);
 
+const loadingView = $("loading-view");
 const loginView = $("login-view");
 const appView = $("app-view");
 const loginForm = $("login-form");
@@ -50,7 +55,7 @@ function statusLabel(status) {
 async function loadProfile() {
   const { data, error } = await db
     .from("profiles")
-    .select("id, full_name, role")
+    .select("id, full_name, email, role")
     .eq("id", currentUser.id)
     .single();
 
@@ -58,11 +63,26 @@ async function loadProfile() {
   currentProfile = data;
 }
 
+function roleLabel(roleId) {
+  const role = rolesCache.find((item) => item.id === roleId);
+  if (role?.label) return role.label;
+  if (roleId === "master") return "Master";
+  if (roleId === "operator") return "Operatore";
+  return roleId || "Operatore";
+}
+
+function showResolvedView(view) {
+  loadingView.classList.add("hidden");
+  loginView.classList.toggle("hidden", view !== "login");
+  appView.classList.toggle("hidden", view !== "app");
+}
+
 function applyRoleUI() {
   const role = currentProfile?.role || "operator";
-  $("role-label").textContent = role === "master" ? "Master" : "Operatore";
+  $("role-label").textContent = roleLabel(role);
+  $("release-label").textContent = APP_VERSION;
   $("user-name").textContent = currentProfile?.full_name?.trim() || "Utente";
-  $("user-email").textContent = currentUser?.email || "";
+  $("user-email").textContent = currentProfile?.email || currentUser?.email || "";
 
   document.querySelectorAll(".master-only").forEach((el) => {
     el.classList.toggle("hidden", role !== "master");
@@ -72,13 +92,15 @@ function applyRoleUI() {
 async function enterApp(user) {
   currentUser = user;
   await loadProfile();
+  await loadRoles();
   applyRoleUI();
 
-  loginView.classList.add("hidden");
-  appView.classList.remove("hidden");
+  const loaders = [loadArticles(), loadOrders()];
+  if (currentProfile?.role === "master") loaders.push(loadUsers());
+  await Promise.all(loaders);
 
-  await Promise.all([loadArticles(), loadOrders()]);
   renderDashboard();
+  showResolvedView("app");
 }
 
 function leaveApp() {
@@ -86,9 +108,10 @@ function leaveApp() {
   currentProfile = null;
   articlesCache = [];
   ordersCache = [];
+  usersCache = [];
+  rolesCache = [];
   pendingCsvRows = [];
-  appView.classList.add("hidden");
-  loginView.classList.remove("hidden");
+  showResolvedView("login");
   loginForm.reset();
 }
 
@@ -118,6 +141,8 @@ loginForm.addEventListener("submit", async (event) => {
     await enterApp(data.user);
   } catch (err) {
     console.error(err);
+    await db.auth.signOut();
+    showResolvedView("login");
     loginError.textContent = "Accesso riuscito, ma non riesco a caricare il profilo.";
     loginError.classList.remove("hidden");
   }
@@ -128,28 +153,177 @@ logoutBtn.addEventListener("click", async () => {
   leaveApp();
 });
 
-document.querySelectorAll(".nav-item").forEach((button) => {
-  button.addEventListener("click", () => {
-    const target = button.dataset.section;
+function openSection(target) {
+  const targetButton = document.querySelector(`.nav-item[data-section="${target}"]`);
+  const targetSection = $(`section-${target}`);
+  if (!targetButton || !targetSection || targetButton.classList.contains("hidden")) {
+    target = "dashboard";
+  }
 
-    document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
-    button.classList.add("active");
-
-    document.querySelectorAll(".section").forEach((section) => section.classList.remove("active"));
-    $(`section-${target}`).classList.add("active");
-
-    const titles = {
-      dashboard: "Dashboard",
-      articles: "Articoli",
-      orders: "Lavorazioni"
-    };
-    $("page-title").textContent = titles[target] || "Magazzino";
-
-    sidebar.classList.remove("open");
+  document.querySelectorAll(".nav-item").forEach((b) => {
+    b.classList.toggle("active", b.dataset.section === target);
   });
+
+  document.querySelectorAll(".section").forEach((section) => {
+    section.classList.toggle("active", section.id === `section-${target}`);
+  });
+
+  const titles = {
+    dashboard: "Dashboard",
+    articles: "Articoli",
+    orders: "Lavorazioni",
+    users: "Utenti"
+  };
+  $("page-title").textContent = titles[target] || "Magazzino";
+  sidebar.classList.remove("open");
+}
+
+document.querySelectorAll(".nav-item").forEach((button) => {
+  button.addEventListener("click", () => openSection(button.dataset.section));
 });
 
 menuToggle?.addEventListener("click", () => sidebar.classList.toggle("open"));
+
+async function loadRoles() {
+  const { data, error } = await db
+    .from("roles")
+    .select("id, label, sort_order, active")
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    console.error(error);
+    rolesCache = [
+      { id: "master", label: "Master", sort_order: 10, active: true },
+      { id: "operator", label: "Operatore", sort_order: 100, active: true }
+    ];
+    return;
+  }
+
+  rolesCache = data || [];
+}
+
+async function loadUsers() {
+  if (currentProfile?.role !== "master") {
+    usersCache = [];
+    renderUsers();
+    return;
+  }
+
+  const { data, error } = await db
+    .from("profiles")
+    .select("id, full_name, email, role")
+    .order("email", { ascending: true });
+
+  if (error) {
+    console.error(error);
+    showToast("Errore nel caricamento degli utenti");
+    return;
+  }
+
+  usersCache = data || [];
+  renderUsers();
+}
+
+function renderUsers() {
+  const body = $("users-body");
+  if (!body) return;
+
+  const roleOptions = (selectedRole) => rolesCache.map((role) => `
+    <option value="${escapeHtml(role.id)}" ${role.id === selectedRole ? "selected" : ""}>
+      ${escapeHtml(role.label)}
+    </option>
+  `).join("");
+
+  body.innerHTML = usersCache.map((profile) => {
+    const isCurrent = profile.id === currentUser?.id;
+    const displayName = profile.full_name?.trim() || "Utente";
+
+    return `
+      <tr>
+        <td>
+          <div class="user-primary">
+            <span>${escapeHtml(displayName)}</span>
+            ${isCurrent ? '<span class="you-badge">Tu</span>' : ""}
+          </div>
+        </td>
+        <td>${escapeHtml(profile.email || "—")}</td>
+        <td>
+          <select class="role-select" data-user-id="${escapeHtml(profile.id)}" aria-label="Ruolo di ${escapeHtml(profile.email || displayName)}">
+            ${roleOptions(profile.role)}
+          </select>
+        </td>
+        <td>
+          <button class="btn ghost save-role-btn" type="button" data-user-id="${escapeHtml(profile.id)}">
+            Salva ruolo
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  $("users-empty").classList.toggle("hidden", usersCache.length > 0);
+}
+
+$("refresh-users-btn")?.addEventListener("click", async () => {
+  await Promise.all([loadRoles(), loadUsers()]);
+  applyRoleUI();
+  renderUsers();
+  showToast("Elenco utenti aggiornato");
+});
+
+$("users-body")?.addEventListener("click", async (event) => {
+  const button = event.target.closest(".save-role-btn");
+  if (!button) return;
+
+  const userId = button.dataset.userId;
+  const select = document.querySelector(`.role-select[data-user-id="${userId}"]`);
+  const newRole = select?.value;
+  const profile = usersCache.find((item) => item.id === userId);
+
+  if (!newRole || !profile) return;
+
+  if (newRole === profile.role) {
+    showToast("Il ruolo è già impostato così");
+    return;
+  }
+
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Salvataggio...";
+
+  try {
+    const { error } = await db.rpc("set_user_role", {
+      target_user_id: userId,
+      new_role: newRole
+    });
+    if (error) throw error;
+
+    showToast(`Ruolo aggiornato: ${roleLabel(newRole)}`);
+
+    if (userId === currentUser?.id) {
+      await loadProfile();
+      await loadRoles();
+      applyRoleUI();
+
+      if (currentProfile?.role !== "master") {
+        usersCache = [];
+        openSection("dashboard");
+        return;
+      }
+    }
+
+    await loadUsers();
+  } catch (err) {
+    console.error(err);
+    const message = err?.message || "Errore nella modifica del ruolo";
+    showToast(message);
+    await loadUsers();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+});
 
 async function loadArticles() {
   const { data, error } = await db
@@ -571,17 +745,25 @@ function renderDashboard() {
 }
 
 async function boot() {
-  const { data: { session } } = await db.auth.getSession();
+  $("release-label").textContent = APP_VERSION;
 
-  if (session?.user) {
-    try {
-      await enterApp(session.user);
-    } catch (err) {
-      console.error(err);
-      await db.auth.signOut();
+  try {
+    const { data: { session }, error } = await db.auth.getSession();
+    if (error) throw error;
+
+    if (session?.user) {
+      try {
+        await enterApp(session.user);
+      } catch (err) {
+        console.error(err);
+        await db.auth.signOut();
+        leaveApp();
+      }
+    } else {
       leaveApp();
     }
-  } else {
+  } catch (err) {
+    console.error(err);
     leaveApp();
   }
 
